@@ -161,7 +161,7 @@ class BaseViz:
         return self._force_cached
 
     def process_metrics(self) -> None:
-        # metrics in TableViz is order sensitive, so metric_dict should be
+        # metrics in Viz is order sensitive, so metric_dict should be
         # OrderedDict
         self.metric_dict = OrderedDict()
         fd = self.form_data
@@ -812,6 +812,7 @@ class TimeTableViz(BaseViz):
         pt = df.pivot_table(index=DTTM_ALIAS, columns=columns, values=values)
         pt.index = pt.index.map(str)
         pt = pt.sort_index()
+
         return dict(
             records=pt.to_dict(orient="index"),
             columns=list(pt.columns),
@@ -1165,6 +1166,7 @@ class BigNumberViz(BaseViz):
             dropna=False,
             aggfunc=np.min,  # looking for any (only) value, preserving `None`
         )
+
         df = self.apply_rolling(df)
         df[DTTM_ALIAS] = df.index
         return super().get_data(df)
@@ -1670,6 +1672,9 @@ class DistributionBarViz(BaseViz):
             pt = pt.T
             pt = (pt / pt.sum()).T
         pt = pt.reindex(row.index)
+
+        # Re-order the columns adhering to the metric ordering.
+        pt = pt[metrics]
         chart_data = []
         for name, ys in pt.items():
             if pt[name].dtype.kind not in "biufc" or name in self.groupby:
