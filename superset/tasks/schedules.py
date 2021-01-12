@@ -18,7 +18,6 @@
 """Utility functions used across Superset"""
 
 import logging
-import time
 import urllib.request
 from collections import namedtuple
 from datetime import datetime, timedelta
@@ -32,7 +31,6 @@ from typing import (
     Optional,
     Tuple,
     TYPE_CHECKING,
-    Union,
 )
 from urllib.error import URLError
 
@@ -40,12 +38,8 @@ import croniter
 import simplejson as json
 from celery.app.task import Task
 from dateutil.tz import tzlocal
-from flask import current_app, render_template, url_for
+from flask import current_app, render_template
 from flask_babel import gettext as __
-from retry.api import retry_call
-from selenium.common.exceptions import WebDriverException
-from selenium.webdriver import chrome, firefox
-from selenium.webdriver.remote.webdriver import WebDriver
 from sqlalchemy import func
 from sqlalchemy.exc import NoSuchColumnError, ResourceClosedError
 from sqlalchemy.orm import Session
@@ -66,7 +60,7 @@ from superset.tasks.alerts.validator import get_validator_function
 from superset.tasks.slack_util import deliver_slack_msg
 from superset.utils.celery import session_scope
 from superset.utils.core import get_email_address_list, send_email_smtp
-from superset.utils.screenshots import ChartScreenshot, WebDriverProxy
+from superset.utils.screenshots import ChartScreenshot, DashboardScreenshot
 from superset.utils.urls import get_url_path
 
 # pylint: disable=too-few-public-methods
@@ -149,7 +143,7 @@ def _deliver_email(  # pylint: disable=too-many-arguments
 
 
 def _generate_report_content(
-    delivery_type: EmailDeliveryType, screenshot: bytes, name: str, url: str
+    delivery_type: EmailDeliveryType, screenshot: ScreenshotData, name: str, url: str
 ) -> ReportContent:
     data: Optional[Dict[str, Any]]
 
@@ -165,19 +159,19 @@ def _generate_report_content(
 
     if delivery_type == EmailDeliveryType.attachment:
         images = None
-        data = {"screenshot": screenshot}
+        data = {"screenshot.png": screenshot.image}
         body = __(
             '<b><a href="%(url)s">Explore in Superset</a></b><p></p>',
             name=name,
             url=url,
         )
-    elif delivery_type == EmailDeliveryType.inline:
+    else:
         # Get the domain from the 'From' address ..
         # and make a message id without the < > in the ends
         domain = parseaddr(config["SMTP_MAIL_FROM"])[1].split("@")[1]
         msgid = make_msgid(domain)[1:-1]
 
-        images = {msgid: screenshot}
+        images = {msgid: screenshot.image}
         data = None
         body = __(
             """
@@ -189,21 +183,7 @@ def _generate_report_content(
             msgid=msgid,
         )
 
-    return ReportContent(body, data, images, slack_message, screenshot)
-
-
-def _get_url_path(view: str, user_friendly: bool = False, **kwargs: Any) -> str:
-    with app.test_request_context():
-        base_url = (
-            WEBDRIVER_BASEURL_USER_FRIENDLY if user_friendly else WEBDRIVER_BASEURL
-        )
-        return urllib.parse.urljoin(str(base_url), url_for(view, **kwargs))
-
-
-def create_webdriver(session: Session) -> WebDriver:
-    return WebDriverProxy(driver_type=config["WEBDRIVER_TYPE"]).auth(
-        get_reports_user(session)
-    )
+    return ReportContent(body, data, images, slack_message, screenshot.image)
 
 
 def get_reports_user(session: Session) -> "User":
@@ -217,25 +197,6 @@ def get_reports_user(session: Session) -> "User":
     )
 
 
-def destroy_webdriver(
-    driver: Union[chrome.webdriver.WebDriver, firefox.webdriver.WebDriver]
-) -> None:
-    """
-    Destroy a driver
-    """
-
-    # This is some very flaky code in selenium. Hence the retries
-    # and catch-all exceptions
-    try:
-        retry_call(driver.close, tries=2)
-    except Exception:  # pylint: disable=broad-except
-        pass
-    try:
-        driver.quit()
-    except Exception:  # pylint: disable=broad-except
-        pass
-
-
 def deliver_dashboard(  # pylint: disable=too-many-locals
     dashboard_id: int,
     recipients: Optional[str],
@@ -243,47 +204,34 @@ def deliver_dashboard(  # pylint: disable=too-many-locals
     delivery_type: EmailDeliveryType,
     deliver_as_group: bool,
 ) -> None:
-
     """
     Given a schedule, delivery the dashboard as an email report
+    or/and Slack notification
     """
     with session_scope(nullpool=True) as session:
         dashboard = session.query(Dashboard).filter_by(id=dashboard_id).one()
 
-        dashboard_url = _get_url_path(
+        dashboard_url = get_url_path(
             "Superset.dashboard", dashboard_id_or_slug=dashboard.id
         )
-        dashboard_url_user_friendly = _get_url_path(
+        dashboard_url_user_friendly = get_url_path(
             "Superset.dashboard", user_friendly=True, dashboard_id_or_slug=dashboard.id
         )
 
-        # Create a driver, fetch the page, wait for the page to render
-        driver = create_webdriver(session)
-        window = config["WEBDRIVER_WINDOW"]["dashboard"]
-        driver.set_window_size(*window)
-        driver.get(dashboard_url)
-        time.sleep(EMAIL_PAGE_RENDER_WAIT)
-
-        # Set up a function to retry once for the element.
-        # This is buggy in certain selenium versions with firefox driver
-        get_element = getattr(driver, "find_element_by_class_name")
-        element = retry_call(
-            get_element, fargs=["grid-container"], tries=2, delay=EMAIL_PAGE_RENDER_WAIT
+        screenshot = DashboardScreenshot(dashboard_url, dashboard.digest)
+        user = get_reports_user(session)
+        image_data = screenshot.compute_and_cache(
+            user=user, cache=thumbnail_cache, force=True
         )
 
-        try:
-            screenshot = element.screenshot_as_png
-        except WebDriverException:
-            # Some webdrivers do not support screenshots for elements.
-            # In such cases, take a screenshot of the entire page.
-            screenshot = driver.screenshot()  # pylint: disable=no-member
-        finally:
-            destroy_webdriver(driver)
+        session.commit()
+        screenshot_data = ScreenshotData(screenshot.url, image_data)
 
         # Generate the email body and attachments
+        # TODO Check me
         report_content = _generate_report_content(
             delivery_type,
-            screenshot,
+            screenshot_data,
             dashboard.dashboard_title,
             dashboard_url_user_friendly,
         )
@@ -315,12 +263,12 @@ def deliver_dashboard(  # pylint: disable=too-many-locals
 def _get_slice_data(
     slc: Slice, delivery_type: EmailDeliveryType, session: Session
 ) -> ReportContent:
-    slice_url = _get_url_path(
+    slice_url = get_url_path(
         "Superset.explore_json", csv="true", form_data=json.dumps({"slice_id": slc.id})
     )
 
     # URL to include in the email
-    slice_url_user_friendly = _get_url_path(
+    slice_url_user_friendly = get_url_path(
         "Superset.slice", slice_id=slc.id, user_friendly=True
     )
 
@@ -355,7 +303,7 @@ def _get_slice_data(
                 link=slice_url_user_friendly,
             )
 
-    elif delivery_type == EmailDeliveryType.attachment:
+    else:
         data = {__("%(name)s.csv", name=slc.slice_name): content}
         body = __(
             '<b><a href="%(url)s">Explore in Superset</a></b><p></p>',
@@ -381,15 +329,14 @@ def _get_slice_screenshot(slice_id: int, session: Session) -> ScreenshotData:
 
     chart_url = get_url_path("Superset.slice", slice_id=slice_obj.id, standalone="true")
     screenshot = ChartScreenshot(chart_url, slice_obj.digest)
-    image_url = _get_url_path(
-        "Superset.slice", user_friendly=True, slice_id=slice_obj.id,
+    image_url = get_url_path(
+        "Superset.slice", user_friendly=True, slice_id=slice_obj.id
     )
 
-    user = security_manager.get_user_by_username(
-        current_app.config["THUMBNAIL_SELENIUM_USER"], session=session
-    )
+    user = get_reports_user(session)
+
     image_data = screenshot.compute_and_cache(
-        user=user, cache=thumbnail_cache, force=True,
+        user=user, cache=thumbnail_cache, force=True
     )
 
     session.commit()
@@ -399,40 +346,15 @@ def _get_slice_screenshot(slice_id: int, session: Session) -> ScreenshotData:
 def _get_slice_visualization(
     slc: Slice, delivery_type: EmailDeliveryType, session: Session
 ) -> ReportContent:
-    # Create a driver, fetch the page, wait for the page to render
-    driver = create_webdriver(session)
-    window = config["WEBDRIVER_WINDOW"]["slice"]
-    driver.set_window_size(*window)
-
-    slice_url = _get_url_path("Superset.slice", slice_id=slc.id)
-    slice_url_user_friendly = _get_url_path(
+    slice_url_user_friendly = get_url_path(
         "Superset.slice", slice_id=slc.id, user_friendly=True
     )
 
-    driver.get(slice_url)
-    time.sleep(EMAIL_PAGE_RENDER_WAIT)
-
-    # Set up a function to retry once for the element.
-    # This is buggy in certain selenium versions with firefox driver
-    element = retry_call(
-        driver.find_element_by_class_name,
-        fargs=["chart-container"],
-        tries=2,
-        delay=EMAIL_PAGE_RENDER_WAIT,
-    )
-
-    try:
-        screenshot = element.screenshot_as_png
-    except WebDriverException:
-        # Some webdrivers do not support screenshots for elements.
-        # In such cases, take a screenshot of the entire page.
-        screenshot = driver.screenshot()  # pylint: disable=no-member
-    finally:
-        destroy_webdriver(driver)
+    slice_screenshot = _get_slice_screenshot(slc.id, session)
 
     # Generate the email body and attachments
     return _generate_report_content(
-        delivery_type, screenshot, slc.slice_name, slice_url_user_friendly
+        delivery_type, slice_screenshot, slc.slice_name, slice_url_user_friendly
     )
 
 
@@ -538,7 +460,7 @@ def schedule_email_report(
     soft_time_limit=config["EMAIL_ASYNC_TIME_LIMIT_SEC"],
     # TODO: find cause of https://github.com/apache/superset/issues/10530
     # and remove retry
-    autoretry_for=(NoSuchColumnError, ResourceClosedError,),
+    autoretry_for=(NoSuchColumnError, ResourceClosedError),
     retry_kwargs={"max_retries": 5},
     retry_backoff=True,
 )
@@ -602,7 +524,7 @@ def deliver_alert(
             alert.sql,
             str(alert.observations[-1].value),
             validation_error_message,
-            _get_url_path("AlertModelView.show", user_friendly=True, pk=alert_id),
+            get_url_path("AlertModelView.show", user_friendly=True, pk=alert_id),
             _get_slice_screenshot(alert.slice.id, session),
         )
     else:
@@ -612,7 +534,7 @@ def deliver_alert(
             alert.sql,
             str(alert.observations[-1].value),
             validation_error_message,
-            _get_url_path("AlertModelView.show", user_friendly=True, pk=alert_id),
+            get_url_path("AlertModelView.show", user_friendly=True, pk=alert_id),
             None,
         )
 
@@ -675,9 +597,7 @@ def deliver_slack_alert(alert_content: AlertContent, slack_channel: str) -> None
             alert_url=alert_content.alert_url,
         )
 
-    deliver_slack_msg(
-        slack_channel, subject, slack_message, image,
-    )
+    deliver_slack_msg(slack_channel, subject, slack_message, image)
 
 
 def evaluate_alert(

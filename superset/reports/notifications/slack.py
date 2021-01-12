@@ -64,26 +64,36 @@ class SlackNotification(BaseNotification):  # pylint: disable=too-few-public-met
         body = self._get_body()
 
         try:
-            client = WebClient(
-                token=app.config["SLACK_API_TOKEN"], proxy=app.config["SLACK_PROXY"]
-            )
-            # files_upload returns SlackResponse as we run it in sync mode.
-            if file:
-                response = cast(
-                    SlackResponse,
-                    client.files_upload(
-                        channels=channel,
-                        file=file,
-                        initial_comment=body,
-                        title="subject",
-                    ),
-                )
-                assert response["file"], str(response)  # the uploaded file
-            else:
-                response = cast(
-                    SlackResponse, client.chat_postMessage(channel=channel, text=body),
-                )
-                assert response["message"]["text"], str(response)
-            logger.info("Report sent to slack")
+            self.deliver_message(channel, self._content.name, body, file)
         except SlackClientError as ex:
             raise NotificationError(ex)
+
+    @staticmethod
+    def deliver_message(
+        slack_channel: str,
+        subject: str,
+        body: str,
+        file: Optional[Union[str, IOBase, bytes]],
+    ) -> None:
+        client = WebClient(
+            token=app.config["SLACK_API_TOKEN"], proxy=app.config["SLACK_PROXY"]
+        )
+        # files_upload returns SlackResponse as we run it in sync mode.
+        if file:
+            response = cast(
+                SlackResponse,
+                client.files_upload(
+                    channels=slack_channel,
+                    file=file,
+                    initial_comment=body,
+                    title=subject,
+                ),
+            )
+            assert response["file"], str(response)  # the uploaded file
+        else:
+            response = cast(
+                SlackResponse,
+                client.chat_postMessage(channel=slack_channel, text=body),
+            )
+            assert response["message"]["text"], str(response)
+        logger.info("Sent the report to the slack %s", slack_channel)

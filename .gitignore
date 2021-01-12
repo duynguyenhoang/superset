@@ -27,6 +27,7 @@ __pycache__
 .bento*
 .cache-loader
 .coverage
+htmlcov
 cover
 .DS_Store
 .eggs

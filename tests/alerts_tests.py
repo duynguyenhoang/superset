@@ -327,7 +327,7 @@ def test_validate_observations(setup_database):
 
 @patch("superset.tasks.slack_util.WebClient.files_upload")
 @patch("superset.tasks.schedules.send_email_smtp")
-@patch("superset.tasks.schedules._get_url_path")
+@patch("superset.tasks.schedules.get_url_path")
 @patch("superset.utils.screenshots.ChartScreenshot.compute_and_cache")
 def test_deliver_alert_screenshot(
     screenshot_mock, url_mock, email_mock, file_upload_mock, setup_database

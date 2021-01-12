@@ -15,13 +15,12 @@
 # specific language governing permissions and limitations
 # under the License.
 # isort:skip_file
+# TODO Test me new reporting slice URL
 from datetime import datetime, timedelta
-from unittest.mock import Mock, patch, PropertyMock
+from unittest.mock import Mock, patch
 
 from flask_babel import gettext as __
 import pytest
-from selenium.common.exceptions import WebDriverException
-from slack import errors, WebClient
 
 from tests.test_app import app
 from superset import db
@@ -32,12 +31,7 @@ from superset.models.schedules import (
     SliceEmailReportFormat,
     SliceEmailSchedule,
 )
-from superset.tasks.schedules import (
-    create_webdriver,
-    deliver_dashboard,
-    deliver_slice,
-    next_schedules,
-)
+from superset.tasks.schedules import deliver_dashboard, deliver_slice, next_schedules
 from superset.models.slice import Slice
 from tests.base_tests import SupersetTestCase
 from tests.utils import read_fixture
@@ -169,29 +163,11 @@ class TestSchedules(SupersetTestCase):
         self.assertEqual(schedules[59], datetime.strptime("2018-03-30 17:40:00", fmt))
         self.assertEqual(schedules[60], datetime.strptime("2018-05-04 17:10:00", fmt))
 
-    @patch("superset.tasks.schedules.firefox.webdriver.WebDriver")
-    def test_create_driver(self, mock_driver_class):
-        mock_driver = Mock()
-        mock_driver_class.return_value = mock_driver
-        mock_driver.find_elements_by_id.side_effect = [True, False]
-
-        create_webdriver(db.session)
-        mock_driver.add_cookie.assert_called_once()
-
-    @patch("superset.tasks.schedules.firefox.webdriver.WebDriver")
     @patch("superset.tasks.schedules.send_email_smtp")
-    @patch("superset.tasks.schedules.time")
-    def test_deliver_dashboard_inline(self, mtime, send_email_smtp, driver_class):
-        element = Mock()
-        driver = Mock()
-        mtime.sleep.return_value = None
-
-        driver_class.return_value = driver
-
-        # Ensure that we are able to login with the driver
-        driver.find_elements_by_id.side_effect = [True, False]
-        driver.find_element_by_class_name.return_value = element
-        element.screenshot_as_png = read_fixture("sample.png")
+    @patch("superset.utils.screenshots.DashboardScreenshot.compute_and_cache")
+    def test_deliver_dashboard_inline(self, screenshot_mock, send_email_smtp):
+        screenshot = read_fixture("sample.png")
+        screenshot_mock.return_value = screenshot
 
         schedule = (
             db.session.query(DashboardEmailSchedule)
@@ -207,27 +183,22 @@ class TestSchedules(SupersetTestCase):
             schedule.deliver_as_group,
         )
 
-        mtime.sleep.assert_called_once()
-        driver.screenshot.assert_not_called()
         send_email_smtp.assert_called_once()
 
-    @patch("superset.tasks.schedules.firefox.webdriver.WebDriver")
+        self.assertEqual(send_email_smtp.call_args[0][0], self.RECIPIENTS)
+
+        self.assertIsNone(send_email_smtp.call_args[1]["data"])
+        self.assertIsNotNone(send_email_smtp.call_args[1]["images"])
+
+        email_body = send_email_smtp.call_args[0][2]
+        assert '<img src="cid' in email_body
+        assert "Explore in Superset" in email_body
+
     @patch("superset.tasks.schedules.send_email_smtp")
-    @patch("superset.tasks.schedules.time")
-    def test_deliver_dashboard_as_attachment(
-        self, mtime, send_email_smtp, driver_class
-    ):
-        element = Mock()
-        driver = Mock()
-        mtime.sleep.return_value = None
-
-        driver_class.return_value = driver
-
-        # Ensure that we are able to login with the driver
-        driver.find_elements_by_id.side_effect = [True, False]
-        driver.find_element_by_id.return_value = element
-        driver.find_element_by_class_name.return_value = element
-        element.screenshot_as_png = read_fixture("sample.png")
+    @patch("superset.utils.screenshots.DashboardScreenshot.compute_and_cache")
+    def test_deliver_dashboard_as_attachment(self, screenshot_mock, send_email_smtp):
+        screenshot = read_fixture("sample.png")
+        screenshot_mock.return_value = screenshot
 
         schedule = (
             db.session.query(DashboardEmailSchedule)
@@ -245,72 +216,21 @@ class TestSchedules(SupersetTestCase):
             schedule.deliver_as_group,
         )
 
-        mtime.sleep.assert_called_once()
-        driver.screenshot.assert_not_called()
         send_email_smtp.assert_called_once()
+
+        email_body = send_email_smtp.call_args[0][2]
+        assert '<img src="cid' not in email_body
+
         self.assertIsNone(send_email_smtp.call_args[1]["images"])
         self.assertEqual(
-            send_email_smtp.call_args[1]["data"]["screenshot"],
-            element.screenshot_as_png,
+            send_email_smtp.call_args[1]["data"]["screenshot.png"], screenshot
         )
 
-    @patch("superset.tasks.schedules.firefox.webdriver.WebDriver")
     @patch("superset.tasks.schedules.send_email_smtp")
-    @patch("superset.tasks.schedules.time")
-    def test_dashboard_chrome_like(self, mtime, send_email_smtp, driver_class):
-        # Test functionality for chrome driver which does not support
-        # element snapshots
-        element = Mock()
-        driver = Mock()
-        mtime.sleep.return_value = None
-        type(element).screenshot_as_png = PropertyMock(side_effect=WebDriverException)
-
-        driver_class.return_value = driver
-
-        # Ensure that we are able to login with the driver
-        driver.find_elements_by_id.side_effect = [True, False]
-        driver.find_element_by_id.return_value = element
-        driver.find_element_by_class_name.return_value = element
-        driver.screenshot.return_value = read_fixture("sample.png")
-
-        schedule = (
-            db.session.query(DashboardEmailSchedule)
-            .filter_by(id=self.dashboard_schedule)
-            .one()
-        )
-
-        deliver_dashboard(
-            schedule.dashboard_id,
-            schedule.recipients,
-            schedule.slack_channel,
-            schedule.delivery_type,
-            schedule.deliver_as_group,
-        )
-
-        mtime.sleep.assert_called_once()
-        driver.screenshot.assert_called_once()
-        send_email_smtp.assert_called_once()
-
-        self.assertEqual(send_email_smtp.call_args[0][0], self.RECIPIENTS)
-        self.assertEqual(
-            list(send_email_smtp.call_args[1]["images"].values())[0],
-            driver.screenshot.return_value,
-        )
-
-    @patch("superset.tasks.schedules.firefox.webdriver.WebDriver")
-    @patch("superset.tasks.schedules.send_email_smtp")
-    @patch("superset.tasks.schedules.time")
-    def test_deliver_email_options(self, mtime, send_email_smtp, driver_class):
-        element = Mock()
-        driver = Mock()
-        mtime.sleep.return_value = None
-
-        driver_class.return_value = driver
-
-        # Ensure that we are able to login with the driver
-        driver.find_elements_by_id.side_effect = [True, False]
-        driver.find_element_by_class_name.return_value = element
-        element.screenshot_as_png = read_fixture("sample.png")
+    @patch("superset.utils.screenshots.DashboardScreenshot.compute_and_cache")
+    def test_deliver_email_options(self, screenshot_mock, send_email_smtp):
+        screenshot = read_fixture("sample.png")
+        screenshot_mock.return_value = screenshot
 
         schedule = (
             db.session.query(DashboardEmailSchedule)
@@ -332,36 +252,61 @@ class TestSchedules(SupersetTestCase):
             schedule.deliver_as_group,
         )
 
-        mtime.sleep.assert_called_once()
-        driver.screenshot.assert_not_called()
-
         self.assertEqual(send_email_smtp.call_count, 2)
         self.assertEqual(send_email_smtp.call_args[1]["bcc"], self.BCC)
 
-    @patch("superset.tasks.slack_util.WebClient.files_upload")
-    @patch("superset.tasks.schedules.firefox.webdriver.WebDriver")
+    @patch("superset.reports.notifications.slack.SlackNotification.deliver_message")
     @patch("superset.tasks.schedules.send_email_smtp")
-    @patch("superset.tasks.schedules.time")
-    def test_deliver_slice_inline_image(
-        self, mtime, send_email_smtp, driver_class, files_upload
+    @patch("superset.utils.screenshots.DashboardScreenshot.compute_and_cache")
+    def test_deliver_dashboard_slack(
+        self, screenshot_mock, send_email_smtp, deliver_message_mock
     ):
-        element = Mock()
-        driver = Mock()
-        mtime.sleep.return_value = None
+        screenshot = read_fixture("sample.png")
+        screenshot_mock.return_value = screenshot
 
-        driver_class.return_value = driver
+        schedule = (
+            db.session.query(DashboardEmailSchedule)
+            .filter_by(id=self.dashboard_schedule)
+            .one()
+        )
+        schedule.recipients = None
+        schedule.slack_channel = "#test_channel"
 
-        # Ensure that we are able to login with the driver
-        driver.find_elements_by_id.side_effect = [True, False]
-        driver.find_element_by_class_name.return_value = element
-        element.screenshot_as_png = read_fixture("sample.png")
+        deliver_dashboard(
+            schedule.dashboard_id,
+            schedule.recipients,
+            schedule.slack_channel,
+            schedule.delivery_type,
+            schedule.deliver_as_group,
+        )
+
+        send_email_smtp.assert_not_called()
+
+        self.assertEqual(
+            deliver_message_mock.call_args[0],
+            (
+                "#test_channel",
+                "[Report]  World Bank's Data",
+                f"\n        *World Bank's Data*\n\n        <http://0.0.0.0:8080/superset/dashboard/{schedule.dashboard_id}/|Explore in Superset>\n        ",
+                screenshot,
+            ),
+        )
+
+    @patch("superset.reports.notifications.slack.SlackNotification.deliver_message")
+    @patch("superset.tasks.schedules.send_email_smtp")
+    @patch("superset.utils.screenshots.ChartScreenshot.compute_and_cache")
+    def test_deliver_slice_inline_image(
+        self, screenshot_mock, send_email_smtp, deliver_message_mock
+    ):
+        screenshot = read_fixture("sample.png")
+        screenshot_mock.return_value = screenshot
 
         schedule = (
             db.session.query(SliceEmailSchedule).filter_by(id=self.slice_schedule).one()
         )
 
         schedule.email_format = SliceEmailReportFormat.visualization
-        schedule.delivery_format = EmailDeliveryType.inline
+        schedule.delivery_type = EmailDeliveryType.inline
 
         deliver_slice(
             schedule.slice_id,
@@ -372,42 +317,32 @@ class TestSchedules(SupersetTestCase):
             schedule.deliver_as_group,
             db.session,
         )
-        mtime.sleep.assert_called_once()
-        driver.screenshot.assert_not_called()
         send_email_smtp.assert_called_once()
 
+        print(send_email_smtp.call_args)
+
         self.assertEqual(
-            list(send_email_smtp.call_args[1]["images"].values())[0],
-            element.screenshot_as_png,
+            list(send_email_smtp.call_args[1]["images"].values())[0], screenshot
         )
 
         self.assertEqual(
-            files_upload.call_args[1],
-            {
-                "channels": "#test_channel",
-                "file": element.screenshot_as_png,
-                "initial_comment": f"\n        *Participants*\n\n        <http://0.0.0.0:8080/superset/slice/{schedule.slice_id}/|Explore in Superset>\n        ",
-                "title": "[Report]  Participants",
-            },
+            deliver_message_mock.call_args[0],
+            (
+                "#test_channel",
+                "[Report]  Participants",
+                f"\n        *Participants*\n\n        <http://0.0.0.0:8080/superset/slice/{schedule.slice_id}/|Explore in Superset>\n        ",
+                screenshot,
+            ),
         )
 
-    @patch("superset.tasks.slack_util.WebClient.files_upload")
-    @patch("superset.tasks.schedules.firefox.webdriver.WebDriver")
+    @patch("superset.reports.notifications.slack.SlackNotification.deliver_message")
     @patch("superset.tasks.schedules.send_email_smtp")
-    @patch("superset.tasks.schedules.time")
+    @patch("superset.utils.screenshots.ChartScreenshot.compute_and_cache")
     def test_deliver_slice_attachment(
-        self, mtime, send_email_smtp, driver_class, files_upload
+        self, screenshot_mock, send_email_smtp, deliver_message_mock
     ):
-        element = Mock()
-        driver = Mock()
-        mtime.sleep.return_value = None
-
-        driver_class.return_value = driver
-
-        # Ensure that we are able to login with the driver
-        driver.find_elements_by_id.side_effect = [True, False]
-        driver.find_element_by_class_name.return_value = element
-        element.screenshot_as_png = read_fixture("sample.png")
+        screenshot = read_fixture("sample.png")
+        screenshot_mock.return_value = screenshot
 
         schedule = (
             db.session.query(SliceEmailSchedule).filter_by(id=self.slice_schedule).one()
@@ -426,31 +361,28 @@ class TestSchedules(SupersetTestCase):
             db.session,
         )
 
-        mtime.sleep.assert_called_once()
-        driver.screenshot.assert_not_called()
         send_email_smtp.assert_called_once()
 
         self.assertEqual(
-            send_email_smtp.call_args[1]["data"]["screenshot"],
-            element.screenshot_as_png,
+            send_email_smtp.call_args[1]["data"]["screenshot.png"], screenshot
         )
 
         self.assertEqual(
-            files_upload.call_args[1],
-            {
-                "channels": "#test_channel",
-                "file": element.screenshot_as_png,
-                "initial_comment": f"\n        *Participants*\n\n        <http://0.0.0.0:8080/superset/slice/{schedule.slice_id}/|Explore in Superset>\n        ",
-                "title": "[Report]  Participants",
-            },
+            deliver_message_mock.call_args[0],
+            (
+                "#test_channel",
+                "[Report]  Participants",
+                f"\n        *Participants*\n\n        <http://0.0.0.0:8080/superset/slice/{schedule.slice_id}/|Explore in Superset>\n        ",
+                screenshot,
+            ),
         )
 
-    @patch("superset.tasks.slack_util.WebClient.files_upload")
-    @patch("superset.tasks.schedules.urllib.request.OpenerDirector.open")
+    @patch("superset.reports.notifications.slack.SlackNotification.deliver_message")
     @patch("superset.tasks.schedules.urllib.request.urlopen")
+    @patch("superset.tasks.schedules.urllib.request.OpenerDirector.open")
     @patch("superset.tasks.schedules.send_email_smtp")
     def test_deliver_slice_csv_attachment(
-        self, send_email_smtp, mock_open, mock_urlopen, files_upload
+        self, send_email_smtp, mock_open, mock_urlopen, deliver_message_mock
     ):
         response = Mock()
         mock_open.return_value = response
@@ -482,21 +414,21 @@ class TestSchedules(SupersetTestCase):
         self.assertEqual(send_email_smtp.call_args[1]["data"][file_name], self.CSV)
 
         self.assertEqual(
-            files_upload.call_args[1],
-            {
-                "channels": "#test_channel",
-                "file": self.CSV,
-                "initial_comment": f"\n        *Participants*\n\n        <http://0.0.0.0:8080/superset/slice/{schedule.slice_id}/|Explore in Superset>\n        ",
-                "title": "[Report]  Participants",
-            },
+            deliver_message_mock.call_args[0],
+            (
+                "#test_channel",
+                "[Report]  Participants",
+                f"\n        *Participants*\n\n        <http://0.0.0.0:8080/superset/slice/{schedule.slice_id}/|Explore in Superset>\n        ",
+                self.CSV,
+            ),
         )
 
-    @patch("superset.tasks.slack_util.WebClient.files_upload")
+    @patch("superset.reports.notifications.slack.SlackNotification.deliver_message")
     @patch("superset.tasks.schedules.urllib.request.urlopen")
     @patch("superset.tasks.schedules.urllib.request.OpenerDirector.open")
     @patch("superset.tasks.schedules.send_email_smtp")
     def test_deliver_slice_csv_inline(
-        self, send_email_smtp, mock_open, mock_urlopen, files_upload
+        self, send_email_smtp, mock_open, mock_urlopen, deliver_message_mock
     ):
         response = Mock()
         mock_open.return_value = response
@@ -526,19 +458,11 @@ class TestSchedules(SupersetTestCase):
         self.assertTrue("<table " in send_email_smtp.call_args[0][2])
 
         self.assertEqual(
-            files_upload.call_args[1],
-            {
-                "channels": "#test_channel",
-                "file": self.CSV,
-                "initial_comment": f"\n        *Participants*\n\n        <http://0.0.0.0:8080/superset/slice/{schedule.slice_id}/|Explore in Superset>\n        ",
-                "title": "[Report]  Participants",
-            },
+            deliver_message_mock.call_args[0],
+            (
+                "#test_channel",
+                "[Report]  Participants",
+                f"\n        *Participants*\n\n        <http://0.0.0.0:8080/superset/slice/{schedule.slice_id}/|Explore in Superset>\n        ",
+                self.CSV,
+            ),
         )
-
-
-def test_slack_client_compatibility():
-    c2 = WebClient()
-    # slackclient >2.5.0 raises TypeError: a bytes-like object is required, not 'str
-    # and requires to path a filepath instead of the bytes directly
-    with pytest.raises(errors.SlackApiError):
-        c2.files_upload(channels="#bogdan-test2", file=b"blabla", title="Test upload")
