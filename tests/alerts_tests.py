@@ -325,12 +325,12 @@ def test_validate_observations(setup_database):
     assert validate_observations(alert4.id, alert4.label, db_session) is True
 
 
-@patch("superset.tasks.slack_util.WebClient.files_upload")
+@patch("superset.reports.notifications.slack.SlackNotification.deliver_message")
 @patch("superset.tasks.schedules.send_email_smtp")
 @patch("superset.tasks.schedules.get_url_path")
 @patch("superset.utils.screenshots.ChartScreenshot.compute_and_cache")
 def test_deliver_alert_screenshot(
-    screenshot_mock, url_mock, email_mock, file_upload_mock, setup_database
+    screenshot_mock, url_mock, email_mock, deliver_message_mock, setup_database
 ):
     dbsession = setup_database
     alert = create_alert(dbsession, "SELECT 55", "not null", "{}")
@@ -343,19 +343,20 @@ def test_deliver_alert_screenshot(
     url_mock.side_effect = [
         f"http://0.0.0.0:8080/alerts/show/{alert.id}",
         f"http://0.0.0.0:8080/superset/slice/{alert.slice_id}/",
+        f"http://0.0.0.0:8080/superset/slice/{alert.slice_id}/",
     ]
-
     deliver_alert(alert.id, dbsession)
     assert email_mock.call_args[1]["images"]["screenshot"] == screenshot
-    assert file_upload_mock.call_args[1] == {
-        "channels": alert.slack_channel,
-        "file": screenshot,
-        "initial_comment": f"\n*Triggered Alert: {alert.label} :redalert:*\n"
+
+    assert deliver_message_mock.call_args[0] == (
+        alert.slack_channel,
+        f"[Alert] {alert.label}",
+        f"\n*Triggered Alert: {alert.label} :redalert:*\n"
         f"*Query*:```{alert.sql}```\n"
         f"*Result*: {alert.observations[-1].value}\n"
         f"*Reason*: {alert.observations[-1].value} {alert.pretty_config}\n"
         f"<http://0.0.0.0:8080/alerts/show/{alert.id}"
         f"|View Alert Details>\n<http://0.0.0.0:8080/superset/slice/{alert.slice_id}/"
         "|*Explore in Superset*>",
-        "title": f"[Alert] {alert.label}",
-    }
+        screenshot,
+    )
