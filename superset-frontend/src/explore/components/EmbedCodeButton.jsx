@@ -17,6 +17,7 @@
  * under the License.
  */
 import React from 'react';
+import cx from 'classnames';
 import PropTypes from 'prop-types';
 import { t } from '@superset-ui/core';
 
@@ -31,9 +32,14 @@ import { getExploreLongUrl, getURIDirectory } from '../exploreUtils';
 
 const propTypes = {
   latestQueryFormData: PropTypes.object.isRequired,
+  canShare: PropTypes.bool,
 };
 
 export default class EmbedCodeButton extends React.Component {
+  static defaultProps = {
+    canShare: true,
+  };
+
   constructor(props) {
     super(props);
     this.state = {
@@ -145,12 +151,21 @@ export default class EmbedCodeButton extends React.Component {
   }
 
   render() {
+    const canShareClasses = cx('btn btn-default btn-sm', {
+      disabled: !this.props.canShare,
+    });
+    const extraConfig = {};
+    if (!this.props.canShare) {
+      extraConfig['visible'] = false
+    }
+
     return (
       <Popover
         trigger="click"
         placement="left"
-        onClick={this.getCopyUrl}
+        onClick={this.props.canShare ? this.getCopyUrl : null}
         content={this.renderPopoverContent()}
+        {...extraConfig}
       >
         <Tooltip
           id="embed-code-tooltip"
@@ -159,7 +174,7 @@ export default class EmbedCodeButton extends React.Component {
           trigger={['hover']}
         >
           <div
-            className="btn btn-default btn-sm"
+            className={canShareClasses}
             data-test="embed-code-button"
             style={{ display: 'flex', alignItems: 'center', height: 30 }}
           >

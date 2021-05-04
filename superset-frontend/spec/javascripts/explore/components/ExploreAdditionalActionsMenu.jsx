@@ -20,6 +20,8 @@ import React from 'react';
 import { mount, shallow } from 'enzyme';
 import { supersetTheme, ThemeProvider } from '@superset-ui/core';
 import { Dropdown, Menu } from 'src/common/components';
+import { DisplayQueryButton } from 'src/explore/components/DisplayQueryButton';
+import ModalTrigger from 'src/components/ModalTrigger';
 import ExploreAdditionalActionsMenu from 'src/explore/components/ExploreAdditionalActionsMenu';
 
 describe('ExploreAdditionalActionsMenu', () => {
@@ -35,6 +37,8 @@ describe('ExploreAdditionalActionsMenu', () => {
       datasource: '1__table',
     },
     chartHeight: '30px',
+    canSqllab: true,
+    canOverwrite: true,
   };
 
   it('is valid', () => {
@@ -53,5 +57,20 @@ describe('ExploreAdditionalActionsMenu', () => {
     const menu = shallow(<div>{dropdown.prop('overlay')}</div>);
     const menuItems = menu.find(Menu.Item);
     expect(menuItems).toHaveLength(3);
+  });
+
+  it('renders a dropdown without canSqllab and overwrite', () => {
+    const tmpProps = JSON.parse(JSON.stringify(defaultProps));
+    tmpProps.canSqllab = false;
+    tmpProps.canOverwrite = false;
+
+    const wrapper = mount(<DisplayQueryButton {...tmpProps} />, {
+      wrappingComponent: ThemeProvider,
+      wrappingComponentProps: {
+        theme: supersetTheme,
+      },
+    });
+    expect(wrapper.find(ModalTrigger)).toHaveLength(1);
+    expect(wrapper.find(Menu.Item)).toHaveLength(2);
   });
 });

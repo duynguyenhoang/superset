@@ -30,6 +30,9 @@ describe('ExploreActionButtons', () => {
   const defaultProps = {
     actions: {},
     canDownloadCSV: 'True',
+    canOverwrite: true,
+    canSqllab: true,
+    canShare: true,
     latestQueryFormData: {},
     queryEndpoint: 'localhost',
     chartHeight: '30px',
@@ -81,5 +84,13 @@ describe('ExploreActionButtons', () => {
       expect(spyExportChart.callCount).toBe(0);
       spyExportChart.restore();
     });
+  });
+
+  it('should render 3 children/buttons when can not shortener', () => {
+    const tmpProps = JSON.parse(JSON.stringify(defaultProps));
+    tmpProps.canShare = false;
+
+    const wrapper = shallow(<ExploreActionButtons {...tmpProps} />);
+    expect(wrapper.children()).toHaveLength(3);
   });
 });

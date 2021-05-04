@@ -44,6 +44,8 @@ const propTypes = {
   addHistory: PropTypes.func,
   can_overwrite: PropTypes.bool.isRequired,
   can_download: PropTypes.bool.isRequired,
+  canFavstar: PropTypes.bool.isRequired,
+  canSqllab: PropTypes.bool.isRequired,
   isStarred: PropTypes.bool.isRequired,
   slice: PropTypes.object,
   sliceName: PropTypes.string,
@@ -148,7 +150,7 @@ export class ExploreChartHeader extends React.PureComponent {
 
           {this.props.slice && (
             <StyledButtons>
-              {this.props.userId && (
+              {this.props.userId && this.props.canFavstar && (
                 <FaveStar
                   itemId={this.props.slice.slice_id}
                   fetchFaveStar={this.props.actions.fetchFaveStar}
@@ -163,20 +165,22 @@ export class ExploreChartHeader extends React.PureComponent {
                 onSave={this.props.sliceUpdated}
                 slice={this.props.slice}
               />
-              <Tooltip
-                id="edit-desc-tooltip"
-                title={t('Edit chart properties')}
-              >
-                <span
-                  role="button"
-                  tabIndex={0}
-                  className="edit-desc-icon"
-                  onClick={this.openPropertiesModal}
+              {this.props.can_overwrite && (
+                <Tooltip
+                  id="edit-desc-tooltip"
+                  title={t('Edit chart properties')}
                 >
-                  <i className="fa fa-edit" />
-                </span>
-              </Tooltip>
-              {this.props.chart.sliceFormData && (
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    className="edit-desc-icon"
+                    onClick={this.openPropertiesModal}
+                  >
+                    <i className="fa fa-edit" />
+                  </span>
+                </Tooltip>
+              )}
+              {this.props.can_overwrite && this.props.chart.sliceFormData && (
                 <AlteredSliceTag
                   className="altered"
                   origFormData={this.props.chart.sliceFormData}
@@ -212,6 +216,9 @@ export class ExploreChartHeader extends React.PureComponent {
             }}
             slice={this.props.slice}
             canDownloadCSV={this.props.can_download}
+            canOverwrite={this.props.can_overwrite}
+            canShare={this.props.canShare}
+            canSqllab={this.props.canSqllab}
             chartStatus={chartStatus}
             latestQueryFormData={latestQueryFormData}
             queryResponse={queryResponse}

@@ -100,17 +100,19 @@ export default function QueryAndSaveBtns({
     >
       <ButtonGroup className="query-and-save">
         {qryOrStopButton}
-        <Button
-          buttonStyle="tertiary"
-          buttonSize="small"
-          data-target="#save_modal"
-          data-toggle="modal"
-          disabled={saveButtonDisabled}
-          onClick={onSave}
-          data-test="query-save-button"
-        >
-          <i className="fa fa-plus-circle" /> {t('Save')}
-        </Button>
+        {canAdd && (
+          <Button
+            buttonStyle="tertiary"
+            buttonSize="small"
+            data-target="#save_modal"
+            data-toggle="modal"
+            disabled={saveButtonDisabled}
+            onClick={onSave}
+            data-test="query-save-button"
+          >
+            <i className="fa fa-plus-circle" /> {t('Save')}
+          </Button>
+        )}
       </ButtonGroup>
       {errorMessage && (
         <span className="errMsg">

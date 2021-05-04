@@ -376,6 +376,8 @@ class Header extends React.PureComponent {
     const userCanEdit = dashboardInfo.dash_edit_perm;
     const userCanShare = dashboardInfo.dash_share_perm;
     const userCanSaveAs = dashboardInfo.dash_save_perm;
+    const userCanFav = dashboardInfo.superset_can_fav;
+
     const refreshLimit =
       dashboardInfo.common.conf.SUPERSET_DASHBOARD_PERIODICAL_REFRESH_LIMIT;
     const refreshWarning =
@@ -402,7 +404,7 @@ class Header extends React.PureComponent {
             canEdit={userCanEdit}
             canSave={userCanSaveAs}
           />
-          {dashboardInfo.userId && (
+          {dashboardInfo.userId && userCanFav && (
             <FaveStar
               itemId={dashboardInfo.id}
               fetchFaveStar={this.props.fetchFaveStar}

@@ -32,6 +32,8 @@ const propTypes = {
   onOpenInEditor: PropTypes.func,
   chartStatus: PropTypes.string,
   latestQueryFormData: PropTypes.object.isRequired,
+  canOverwrite: PropTypes.bool.isRequired,
+  canSqllab: PropTypes.bool.isRequired,
   slice: PropTypes.object,
 };
 
@@ -68,14 +70,14 @@ const ExploreAdditionalActionsMenu = props => {
     }
   };
 
-  const { slice } = props;
+  const { slice, canOverwrite, canSqllab } = props;
   return (
     <Dropdown
       trigger="click"
       data-test="query-dropdown"
       overlay={
         <Menu onClick={handleMenuClick} selectable={false}>
-          {slice && (
+          {slice && canOverwrite && (
             <Menu.Item key={MENU_KEYS.EDIT_PROPERTIES}>
               {t('Edit properties')}
             </Menu.Item>
@@ -94,7 +96,7 @@ const ExploreAdditionalActionsMenu = props => {
               responsive
             />
           </Menu.Item>
-          {sqlSupported && (
+          {canSqllab && sqlSupported && (
             <Menu.Item key={MENU_KEYS.RUN_IN_SQL_LAB}>
               {t('Run in SQL Lab')}
             </Menu.Item>

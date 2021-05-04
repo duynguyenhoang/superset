@@ -35,6 +35,9 @@ const propTypes = {
   addHistory: PropTypes.func,
   onQuery: PropTypes.func,
   can_overwrite: PropTypes.bool.isRequired,
+  canShare: PropTypes.bool.isRequired,
+  canFavstar: PropTypes.bool.isRequired,
+  canSqllab: PropTypes.bool.isRequired,
   can_download: PropTypes.bool.isRequired,
   datasource: PropTypes.object,
   column_formats: PropTypes.object,
@@ -245,6 +248,9 @@ const ExploreChartPanel = props => {
       ownState={props.ownState}
       actions={props.actions}
       addHistory={props.addHistory}
+      canShare={props.canShare}
+      canFavstar={props.canFavstar}
+      canSqllab={props.canSqllab}
       can_overwrite={props.can_overwrite}
       can_download={props.can_download}
       isStarred={props.isStarred}

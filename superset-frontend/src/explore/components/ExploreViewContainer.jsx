@@ -589,9 +589,14 @@ function mapStateToProps(state) {
     datasourceId: explore.datasource_id,
     dashboardId: explore.form_data ? explore.form_data.dashboardId : undefined,
     controls: explore.controls,
-    can_overwrite: !!explore.can_overwrite,
-    can_add: !!explore.can_add,
-    can_download: !!explore.can_download,
+
+    canFavstar: !!explore.permissions.can_favstar,
+    canShare: !!explore.permissions.can_share,
+    canSqllab: !!explore.permissions.can_sqllab,
+    can_overwrite: !!explore.permissions.can_overwrite,
+    can_add: !!explore.permissions.can_add,
+    can_download: !!explore.permissions.can_download,
+
     column_formats: explore.datasource
       ? explore.datasource.column_formats
       : null,

@@ -787,6 +787,11 @@ class Superset(BaseSupersetView):  # pylint: disable=too-many-public-methods
         slice_add_perm = security_manager.can_access("can_write", "Chart")
         slice_overwrite_perm = is_owner(slc, g.user) if slc else False
         slice_download_perm = security_manager.can_access("can_csv", "Superset")
+        share_perm = security_manager.can_access(
+            "can_shortner", "R"
+        ) and security_manager.can_access("can_share_chart", "Superset")
+        favstar_perm = security_manager.can_access("can_favstar", "Superset")
+        sqllab_perm = security_manager.can_access("can_sqllab", "Superset")
 
         form_data["datasource"] = str(datasource_id) + "__" + cast(str, datasource_type)
 
@@ -837,9 +842,17 @@ class Superset(BaseSupersetView):  # pylint: disable=too-many-public-methods
             datasource_data = dummy_datasource_data
 
         bootstrap_data = {
-            "can_add": slice_add_perm,
-            "can_download": slice_download_perm,
-            "can_overwrite": slice_overwrite_perm,
+            "permissions": {
+                "can_share": share_perm,
+                "can_favstar": favstar_perm,
+                "can_sqllab": sqllab_perm,
+                "can_add": slice_add_perm,
+                "can_download": slice_download_perm,
+                "can_overwrite": slice_overwrite_perm,
+            },
+            # "can_add": slice_add_perm,
+            # "can_download": slice_download_perm,
+            # "can_overwrite": slice_overwrite_perm,
             "datasource": datasource_data,
             "form_data": form_data,
             "datasource_id": datasource_id,

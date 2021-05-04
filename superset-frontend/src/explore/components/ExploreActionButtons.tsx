@@ -41,6 +41,9 @@ type ActionButtonProps = {
 type ExploreActionButtonsProps = {
   actions: { redirectSQLLab: () => void; openPropertiesModal: () => void };
   canDownloadCSV: boolean;
+  canOverwrite: boolean;
+  canSqllab: boolean;
+  canShare: boolean;
   chartStatus: string;
   latestQueryFormData: {};
   queriesResponse: {};
@@ -88,6 +91,9 @@ const ExploreActionButtons = (props: ExploreActionButtonsProps) => {
   const {
     actions,
     canDownloadCSV,
+    canOverwrite,
+    canShare,
+    canSqllab,
     chartStatus,
     latestQueryFormData,
     slice,
@@ -98,6 +104,8 @@ const ExploreActionButtons = (props: ExploreActionButtonsProps) => {
   const [copyTooltip, setCopyTooltip] = useState(copyTooltipText);
   const longUrl = getExploreLongUrl(latestQueryFormData);
   const getShortUrl = useUrlShortener(longUrl);
+
+  const nullAsyncAction = async () => null;
 
   const doCopyLink = async () => {
     try {
@@ -138,6 +146,9 @@ const ExploreActionButtons = (props: ExploreActionButtonsProps) => {
   const exportToCSVClasses = cx('btn btn-default btn-sm', {
     disabled: !canDownloadCSV,
   });
+  const canShareClasses = cx('btn btn-default btn-sm', {
+    disabled: !canShare,
+  });
 
   return (
     <div
@@ -150,18 +161,23 @@ const ExploreActionButtons = (props: ExploreActionButtonsProps) => {
           <ActionButton
             icon={<Icons.Link iconSize="l" />}
             tooltip={copyTooltip}
-            onClick={doCopyLink}
+            onClick={canShare ? doCopyLink : nullAsyncAction}
             data-test="short-link-button"
             onTooltipVisibilityChange={value =>
               !value && setTimeout(() => setCopyTooltip(copyTooltipText), 200)
             }
+            className={canShareClasses}
           />
           <ActionButton
             icon={<Icons.Email iconSize="l" />}
             tooltip={t('Share chart by email')}
-            onClick={doShareEmail}
+            onClick={canShare ? doShareEmail : nullAsyncAction}
+            className={canShareClasses}
           />
-          <EmbedCodeButton latestQueryFormData={latestQueryFormData} />
+          <EmbedCodeButton
+            canShare={canShare}
+            latestQueryFormData={latestQueryFormData}
+          />
           <ActionButton
             icon={<Icons.FileTextOutlined iconSize="m" />}
             text=".JSON"
@@ -183,6 +199,8 @@ const ExploreActionButtons = (props: ExploreActionButtonsProps) => {
         onOpenInEditor={actions.redirectSQLLab}
         onOpenPropertiesModal={actions.openPropertiesModal}
         slice={slice}
+        canOverwrite={canOverwrite}
+        canSqllab={canSqllab}
       />
     </div>
   );

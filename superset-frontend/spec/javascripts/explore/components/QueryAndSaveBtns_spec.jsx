@@ -57,4 +57,21 @@ describe('QueryAndSaveButtons', () => {
       expect(defaultProps.onQuery.called).toBe(true);
     });
   });
+
+  // Test the output without edit permission
+  describe('output without edit permission', () => {
+    const noPermissionProps = {
+      canAdd: false,
+      onQuery: sinon.spy(),
+    };
+    const wrapper = mount(<QueryAndSaveButtons {...noPermissionProps} />);
+
+    it('renders only run buttons', () => {
+      expect(wrapper.find(Button)).toHaveLength(1);
+    });
+
+    it('renders buttons with correct text', () => {
+      expect(wrapper.find(Button).at(0).text().trim()).toBe('Run');
+    });
+  });
 });
